@@ -81,6 +81,21 @@ for chunk in stream.iter_content(chunk_size=1024):
                     print(f" Detected: {text} ({int(prob*100)}% confidence)")
                     detected_words.append(text)
 
+        # --- FRAME THROTTLING ---
+        if frame_count % 15 == 0:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = reader.readtext(rgb_frame)
+
+            print("\033[H\033[J", end="") 
+            print("=== Real-time Scene Content ===")
+            
+            detected_words = []
+
+            for (bbox, text, prob) in results:
+                if prob > 0.4:  
+                    print(f" Detected: {text} ({int(prob*100)}% confidence)")
+                    detected_words.append(text)
+
                     # FIXED: Extract explicit integer tuple coordinates from EasyOCR box layout
                     top_left = tuple(map(int, bbox[0]))
                     bottom_right = tuple(map(int, bbox[2]))
