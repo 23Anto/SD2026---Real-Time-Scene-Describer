@@ -63,9 +63,6 @@ for chunk in stream.iter_content(chunk_size=1024):
             
         frame_count += 1
 
-        frame = cv2.flip(frame, 1)  # 1 flips the image horizontally
-
-
         # --- FRAME THROTTLING ---
         if frame_count % 15 == 0:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
