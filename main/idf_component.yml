@@ -2,7 +2,4 @@ dependencies:
   espressif/esp32-camera:
     version: '*'
 
-  i2s_examples_common:
-    path: C:\Users\Lance\Downloads\cam\i2s_examples_common
-
   espressif/esp-sr: "^2.1.0"
