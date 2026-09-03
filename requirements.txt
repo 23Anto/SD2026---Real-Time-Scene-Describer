@@ -1,0 +1,15 @@
+opencv-python==5.0.0.93
+numpy==2.0.2
+requests==2.32.5
+
+# Object detection (test_mediapipe.py). Pinned below 1.0.0 — mediapipe==1.0.1
+# crashes on macOS with a fatal "DrishtiMetalHelper ... Service is unavailable"
+# error inside ObjectDetector's graph init, reproducing even with the CPU
+# delegate forced. 0.10.14 is confirmed working.
+mediapipe==0.10.14
+
+# OCR + TTS (test_camera.py)
+easyocr==1.7.2
+torch==2.8.0
+torchvision==0.23.0
+pyttsx3==2.99

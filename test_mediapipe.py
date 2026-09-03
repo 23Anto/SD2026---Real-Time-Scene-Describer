@@ -1,47 +1,18 @@
+import os
 import cv2
 import numpy as np
-import time
 import mediapipe as mp
 
 
-ESP32_STREAM_URL = "http://172.20.10.4/stream"
-
-
-print(f"Connecting to ESP32 stream via Web Requests: {ESP32_STREAM_URL}")
-
-try:
-    stream = requests.get(ESP32_STREAM_URL, stream=True, timeout=5)
-    if stream.status_code != 200:
-        print(f"[Error] Server responded with status code: {stream.status_code}")
-        exit()
-except Exception as e:
-    print(f"\n[Fatal Error] Could not connect to {ESP32_STREAM_URL}\nDetails: {e}")
-    exit()
-
-for chunk in stream.iter_content(chunk_size=1024):
-    bytes_buffer.extend(chunk)
-    
-    start_idx = bytes_buffer.find(b'\xff\xd8')
-    end_idx = bytes_buffer.find(b'\xff\xd9')
-    
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        jpg_data = bytes_buffer[start_idx:end_idx + 2]
-        del bytes_buffer[:end_idx + 2] 
-        
-        frame = cv2.imdecode(np.frombuffer(jpg_data, dtype=np.uint8), cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            continue
-            
-        frame_count += 1
-
-
-
-# Switch to standard sequential image evaluation 
+# Switch to standard sequential image evaluation
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-# Paths and options setup
-model_path = r'C:\Users\anton\Desktop\Twenty20\SD2026---Real-Time-Scene-Describer\efficientdet_lite2.tflite'
+# Paths and options setup — override with the MODEL_PATH env var if the
+# .tflite file lives somewhere other than next to this script.
+model_path = os.environ.get(
+    'MODEL_PATH',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'efficientdet_lite2.tflite'),
+)
 
 BaseOptions = mp.tasks.BaseOptions
 ObjectDetector = mp.tasks.vision.ObjectDetector

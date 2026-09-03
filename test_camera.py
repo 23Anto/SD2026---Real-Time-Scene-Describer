@@ -2,6 +2,8 @@ import warnings
 # 1. Suppress the PyTorch deprecation warnings immediately
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
+import os
+
 import cv2
 import easyocr
 import numpy as np
@@ -9,8 +11,12 @@ import pyttsx3
 import requests
 import threading
 
+from video_source import DEFAULT_ESP_URL
+
 # --- CONFIGURATION ---
-ESP32_STREAM_URL = "http://172.20.10.4/stream"  
+# Override with the VIDEO_SOURCE env var when the ESP32 gets a new IP, e.g.
+#   VIDEO_SOURCE="http://192.168.1.223/stream" python test_camera.py
+ESP32_STREAM_URL = os.environ.get("VIDEO_SOURCE", DEFAULT_ESP_URL)
 
 print("Initializing EasyOCR and TTS Engine (Please wait)...")
 engine = pyttsx3.init()
@@ -62,21 +68,6 @@ for chunk in stream.iter_content(chunk_size=1024):
             continue
             
         frame_count += 1
-
-        # --- FRAME THROTTLING ---
-        if frame_count % 15 == 0:
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = reader.readtext(rgb_frame)
-
-            print("\033[H\033[J", end="") 
-            print("=== Real-time Scene Content ===")
-            
-            detected_words = []
-
-            for (bbox, text, prob) in results:
-                if prob > 0.4:  
-                    print(f" Detected: {text} ({int(prob*100)}% confidence)")
-                    detected_words.append(text)
 
         # --- FRAME THROTTLING ---
         if frame_count % 15 == 0:
