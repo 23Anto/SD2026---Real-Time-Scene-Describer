@@ -22,22 +22,42 @@
 #include "model_path.h"
 #include "hiesp.h"
 
+#include "lwip/err.h"
+#include "lwip/sockets.h"
+#include "lwip/sys.h"
+#include <lwip/netdb.h>
 
 
-#include "pins.h"
+
+#ifdef CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN
+#include "addr_from_stdin.h"
+#endif
+
+#if defined(CONFIG_EXAMPLE_IPV4)
+#define HOST_IP_ADDR CONFIG_EXAMPLE_IPV4_ADDR
+#elif defined(CONFIG_EXAMPLE_IPV6)
+#define HOST_IP_ADDR CONFIG_EXAMPLE_IPV6_ADDR
+#else
+#define HOST_IP_ADDR ""
+#endif
+
+#define PORT CONFIG_EXAMPLE_PORT
+
+
 
 //microphone setup
+
+#include "pins.h"
 i2s_chan_handle_t rx_handle = NULL;
 
 
 size_t bytes_read;
-const int WAVE_HEADER_SIZE = 44;
 
 #define SAMPLE_SIZE         (CONFIG_EXAMPLE_BIT_SAMPLE * 1024)
-#define BYTE_RATE           (CONFIG_EXAMPLE_SAMPLE_RATE * (CONFIG_EXAMPLE_BIT_SAMPLE / 8)) * NUM_CHANNELS
-#define NUM_CHANNELS        (1) // For mono recording only!
 
 static int16_t i2s_readraw_buff[SAMPLE_SIZE];
+
+
 
 
 static const char *TAG = "XIAO_CAM";
@@ -49,11 +69,11 @@ static const char *TAG = "XIAO_CAM";
 
 //WiFi Configuration - Set these in sdkconfig or here
 #ifndef CONFIG_ESP_WIFI_SSID
-#define CONFIG_ESP_WIFI_SSID  "ATT678zcD2"
+#define CONFIG_ESP_WIFI_SSID  "skynet"
 #endif
 
 #ifndef CONFIG_ESP_WIFI_PASSWORD
-#define CONFIG_ESP_WIFI_PASSWORD "2udi62ppa78y"
+#define CONFIG_ESP_WIFI_PASSWORD "t3rm1n4t0r"
 #endif
 
 // WiFi credentials from sdkconfig
@@ -134,37 +154,6 @@ void init_microphone(void)
 }
 
 
-//wake word detection loop
-bool wakeword_detection(void *){
-     srmodel_list_t *models = esp_srmodel_init("model");
-    char *model_name = esp_srmodel_filter(models, ESP_WN_PREFIX, "hiesp");
-    esp_wn_iface_t *wakenet = (esp_wn_iface_t*)esp_wn_handle_from_name(model_name);
-    model_iface_data_t *model_data = wakenet->create(model_name, DET_MODE_95);
-
-    int audio_chunksize = wakenet->get_samp_chunksize(model_data) * sizeof(int16_t);
-    int16_t *i2s_readraw_buff = (int16_t *) malloc(audio_chunksize);
-
-    while (1) {
-       i2s_channel_read(
-            rx_handle,
-            i2s_readraw_buff,
-            sizeof(i2s_readraw_buff),
-            &bytes_read,
-            portMAX_DELAY);
-        
-        wakenet_state_t state = wakenet->detect(model_data, i2s_readraw_buff);
-        if (state == WAKENET_DETECTED) {
-            printf("Detected\n");
-            break;
-        }
-    }
-
-    wakenet->destroy(model_data);
-    vTaskDelete(NULL);
-    return 1;
-}
-
-
 // WiFi event handler
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
@@ -240,7 +229,7 @@ static void wifi_init_sta(void)
 }
 
 
-/*
+
 void wifi_init_softap(void)
 {
     ESP_ERROR_CHECK(esp_netif_init());
@@ -263,12 +252,8 @@ void wifi_init_softap(void)
             .channel = EXAMPLE_ESP_WIFI_CHANNEL,
             .password = EXAMPLE_ESP_WIFI_PASS,
             .max_connection = EXAMPLE_MAX_STA_CONN,
-#ifdef CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT
-            .authmode = WIFI_AUTH_WPA3_PSK,
-            .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
-#else // CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT 
             .authmode = WIFI_AUTH_WPA2_PSK,
-#endif
+
             .pmf_cfg = {
                     .required = true,
             },
@@ -293,7 +278,7 @@ void wifi_init_softap(void)
              EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS, EXAMPLE_ESP_WIFI_CHANNEL);
 }
 
-*/
+
 // Camera init
 static esp_err_t init_camera(void)
 {
@@ -340,16 +325,10 @@ static esp_err_t stream_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
     esp_err_t res = ESP_OK;
-    bool onoff = 1;
+    
     char part_buf[128];
 
-    //init wakenet detection model
-    srmodel_list_t *models = esp_srmodel_init("model");
-    char *model_name = esp_srmodel_filter(models, ESP_WN_PREFIX, "hiesp");
-    esp_wn_iface_t *wakenet = (esp_wn_iface_t*)esp_wn_handle_from_name(model_name);
-    model_iface_data_t *model_data = wakenet->create(model_name, DET_MODE_95);
-    int audio_chunksize = wakenet->get_samp_chunksize(model_data) * sizeof(int16_t);
-    int16_t *i2s_readraw_buff = (int16_t *) malloc(audio_chunksize);
+    
 
     // Set content type AND additional headers for Chrome
     httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=frame");
@@ -359,22 +338,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "Video stream started");  // Add logging
 
     while (true) {
-        while(onoff){
-            i2s_channel_read(
-            rx_handle,
-            i2s_readraw_buff,
-            audio_chunksize,
-            &bytes_read,
-            portMAX_DELAY);
-        
-            wakenet_state_t state = wakenet->detect(model_data, i2s_readraw_buff);
-            if (state == WAKENET_DETECTED) {
-                printf("Detected\n");
-                onoff = 0;
-                break;
-            }
-            vTaskDelay(pdMS_TO_TICKS(1));
-        }
+
 
         fb = esp_camera_fb_get();
         if (!fb) {
@@ -417,113 +381,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
     return res;
 }
 
-/*
-static esp_err_t audio_handler(httpd_req_t *req)
-{
-    
-
-    // Set content type AND additional headers for Chrome
-    httpd_resp_set_type(req, "audio/x-wav");
-
-    const wav_header_t wav_header = WAV_HEADER_PCM_DEFAULT(
-    0,
-    16,
-    16000,
-    1);
-
-    //send header
-    httpd_resp_send_chunk(req, (char *)&wav_header, sizeof(wav_header));
-
-    ESP_LOGI(TAG, "Audio stream started");  // Add logging
-
-    while (1) {
-            // Read the RAW samples from the microphone
-            if (i2s_channel_read(rx_handle, (char *)i2s_readraw_buff, SAMPLE_SIZE, &bytes_read, 1000) == ESP_OK) {
-                printf("[0] %d [1] %d [2] %d [3]%d ...\n", i2s_readraw_buff[0], i2s_readraw_buff[1], i2s_readraw_buff[2], i2s_readraw_buff[3]);
-                httpd_resp_send_chunk(req, (char *)i2s_readraw_buff, bytes_read);
-            } else {
-                printf("Read Failed!\n");
-            }
-        }
-
-    ESP_LOGI(TAG, "Stream ended");
-    return httpd_resp_send_chunk(req, (char *)i2s_readraw_buff, 8192);
-}
-*/
-
-static void audio_stream_task(void *arg)
-{
-    int fd = (int)arg;
-
-    while (1)
-    {
-        esp_err_t err = i2s_channel_read(
-            rx_handle,
-            (char *)i2s_readraw_buff,
-            sizeof(i2s_readraw_buff),
-            &bytes_read,
-            portMAX_DELAY
-        );
-
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "I2S read failed");
-            break;
-        }
-
-
-        httpd_ws_frame_t ws_pkt = {
-            .type = HTTPD_WS_TYPE_BINARY,
-            .payload = (uint8_t *)i2s_readraw_buff,
-            .len = bytes_read
-        };
-
-
-        err = httpd_ws_send_frame_async(
-            camera_httpd,
-            fd,
-            &ws_pkt
-        );
-
-        if(err != ESP_OK)
-        {
-            ESP_LOGI(TAG,"Client disconnected");
-            break;
-        }
-    }
-
-
-    vTaskDelete(NULL);
-}
-
-
-
-static esp_err_t audio_handler(httpd_req_t *req)
-{
-
-    if (httpd_req_to_sockfd(req) < 0)
-        return ESP_FAIL;
-
-
-    int fd = httpd_req_to_sockfd(req);
-
-
-    ESP_LOGI(TAG,"WebSocket connected");
-
-
-    xTaskCreate(
-        audio_stream_task,
-        "audio_stream",
-        4096,
-        (void *)fd,
-        5,
-        NULL
-    );
-
-
-    return ESP_OK;
-}
-
 // Index handler
 static esp_err_t index_handler(httpd_req_t *req)
 {
@@ -534,40 +391,7 @@ static esp_err_t index_handler(httpd_req_t *req)
         "<style>body{margin:0;text-align:center;background:#000}"
         "img{max-width:100%;height:auto}</style>"
         "</head><body>"
-        /*"<h1 style='color:#fff'>XIAO ESP32S3 Camera</h1>"
-        "<script>"
-        "let ws = new WebSocket(\"ws://\" + location.host + \"/audio\");"
-        ""
-        "ws.binaryType = \"arraybuffer\";"
-        ""
-        "let audioCtx = new AudioContext({"
-        "    sampleRate:16000"
-        "});"
-        ""
-        "ws.onmessage = function(event)"
-        "{"
-        "    let pcm = new Int16Array(event.data);"
-        ""
-        "    let buffer = audioCtx.createBuffer("
-        "        1,"
-        "        pcm.length,"
-        "        16000"
-        "    );"
-        ""
-        "    let channel = buffer.getChannelData(0);"
-        ""
-        "    for(let i = 0; i < pcm.length; i++)"
-        "    {"
-        "        channel[i] = pcm[i] / 32768;"
-        "    }"
-        ""
-        "    let source = audioCtx.createBufferSource();"
-        ""
-        "    source.buffer = buffer;"
-        "    source.connect(audioCtx.destination);"
-        "    source.start();"
-        "};"
-        "</script>"*/
+        "<h1 style='color:#fff'>XIAO ESP32S3 Camera</h1>"
         "<img id='stream' src='/stream'>"
         "</body></html>";
     
@@ -596,19 +420,140 @@ static void start_webserver(void)
             .handler = stream_handler,
         };
         httpd_register_uri_handler(camera_httpd, &stream_uri);
-        /*
-        httpd_uri_t audio_uri = {
-            .uri = "/audio",
-            .method = HTTP_GET,
-            .handler = audio_handler,
-            .is_websocket = true
-        };
-        httpd_register_uri_handler(camera_httpd, &audio_uri);*/
 
         ESP_LOGI(TAG, "✓ Web server started");
     }
 }
+TaskHandle_t xUDP;
+static void udp_client_task(void *pvParameters)
+{
+    char rx_buffer[128];
+    char host_ip[] = HOST_IP_ADDR;
+    int addr_family = 0;
+    int ip_protocol = 0;
 
+    while (1) {
+
+#if defined(CONFIG_EXAMPLE_IPV4)
+        struct sockaddr_in dest_addr;
+        dest_addr.sin_addr.s_addr = inet_addr(HOST_IP_ADDR);
+        dest_addr.sin_family = AF_INET;
+        dest_addr.sin_port = htons(PORT);
+        addr_family = AF_INET;
+        ip_protocol = IPPROTO_IP;
+#elif defined(CONFIG_EXAMPLE_IPV6)
+        struct sockaddr_in6 dest_addr = { 0 };
+        inet6_aton(HOST_IP_ADDR, &dest_addr.sin6_addr);
+        dest_addr.sin6_family = AF_INET6;
+        dest_addr.sin6_port = htons(PORT);
+        dest_addr.sin6_scope_id = esp_netif_get_netif_impl_index(EXAMPLE_INTERFACE);
+        addr_family = AF_INET6;
+        ip_protocol = IPPROTO_IPV6;
+#elif defined(CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN)
+        struct sockaddr_storage dest_addr = { 0 };
+        ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_DGRAM, &ip_protocol, &addr_family, &dest_addr));
+#endif
+
+        int sock = socket(addr_family, SOCK_DGRAM, ip_protocol);
+        if (sock < 0) {
+            ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+            break;
+        }
+
+        // Set timeout
+        struct timeval timeout;
+        timeout.tv_sec = 10;
+        timeout.tv_usec = 0;
+        setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
+
+        ESP_LOGI(TAG, "Socket created, sending to %s:%d", HOST_IP_ADDR, PORT);
+       
+        int16_t payload[512];
+
+
+        while (1) {
+            i2s_channel_read(
+            rx_handle,
+            payload,
+            sizeof(payload),
+            &bytes_read,
+            portMAX_DELAY);
+
+
+            int err = sendto(sock, payload, sizeof(payload), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+            if (err < 0) {
+                ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+                break;
+            }
+            ESP_LOGI(TAG, "Message sent");
+            printf("%d", sizeof(payload));
+
+
+            /*
+            struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
+            socklen_t socklen = sizeof(source_addr);
+            int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &socklen);
+
+            // Error occurred during receiving
+            if (len < 0) {
+                ESP_LOGE(TAG, "recvfrom failed: errno %d", errno);
+                break;
+            }
+            // Data received
+            else {
+                rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
+                ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
+                ESP_LOGI(TAG, "%s", rx_buffer);
+                if (strncmp(rx_buffer, "OK: ", 4) == 0) {
+                    ESP_LOGI(TAG, "Received expected message, reconnecting");
+                    break;
+                }
+            }*/
+
+            //vTaskDelay(2000 / portTICK_PERIOD_MS);
+        }
+
+        if (sock != -1) {
+            ESP_LOGE(TAG, "Shutting down socket and restarting...");
+            shutdown(sock, 0);
+            close(sock);
+        }
+    }
+    vTaskDelete(NULL);
+}
+/*
+bool onoff = 1;
+
+void wakeword_detect(){
+    
+    srmodel_list_t *models = esp_srmodel_init("model");
+    char *model_name = esp_srmodel_filter(models, ESP_WN_PREFIX, "hiesp");
+    esp_wn_iface_t *wakenet = (esp_wn_iface_t*)esp_wn_handle_from_name(model_name);
+    model_iface_data_t *model_data = wakenet->create(model_name, DET_MODE_95);
+    int audio_chunksize = wakenet->get_samp_chunksize(model_data) * sizeof(int16_t);
+    int16_t *i2s_readraw_buff = (int16_t *) malloc(audio_chunksize);
+    while(onoff){
+      
+            i2s_channel_read(
+            rx_handle,
+            i2s_readraw_buff,
+            audio_chunksize,
+            &bytes_read,
+            portMAX_DELAY);
+        
+            wakenet_state_t state = wakenet->detect(model_data, i2s_readraw_buff);
+            if (state == WAKENET_DETECTED) {
+                printf("Detected\n");
+                onoff = 0;
+                xTaskCreate(udp_client_task, "udp_client", 4096, NULL, 5, &xUDP);
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    vTaskDelete(xUDP);
+}
+*/
 
 void app_main(void)
 {
@@ -630,11 +575,16 @@ void app_main(void)
         ESP_LOGE(TAG, "Camera failed!");
         return;
     }
+    
 
     init_microphone();
     
-    wifi_init_sta();
+    wifi_init_softap();
     start_webserver();
+
+    
+    xTaskCreate(udp_client_task, "udp_client", 4096, NULL, 5, &xUDP);
+
     
     ESP_LOGI(TAG, "✓ Ready! Open browser to your IP");
     
