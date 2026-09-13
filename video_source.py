@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 import requests
 
-DEFAULT_ESP_URL = "http://192.168.1.223/stream"
+DEFAULT_ESP_URL = "http://192.168.4.1/stream"
 
 
 class MJPEGStream:
@@ -71,12 +71,12 @@ class MJPEGStream:
             self._resp = None
 
 
-def open_video_source(default=None):
+def open_video_source(default=DEFAULT_ESP_URL):
     """Return an object with isOpened()/read()/release() for the configured source."""
     source = os.environ.get("VIDEO_SOURCE", default)
 
     if source is None:
-        return cv2.VideoCapture(0)
+        return cv2.VideoCapture(0) #Testing
 
     if isinstance(source, str) and source.startswith(("http://", "https://")):
         print(f"Opening ESP32-CAM MJPEG stream: {source}")
