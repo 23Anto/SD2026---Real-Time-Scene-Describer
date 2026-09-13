@@ -40,7 +40,7 @@ def draw_detections(frame, result):
     return frame
 
 
-def main():
+def perform_yolo():
     cap = open_video_source()
     if not cap.isOpened():
         print("Could not open video source.")

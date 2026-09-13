@@ -72,60 +72,61 @@ options = ObjectDetectorOptions(
     max_results=5
 )
 
-# Open local hardware video feed
-cap = cv2.VideoCapture(0)
+def perform_objdec():
+    # Open local hardware video feed
+    cap = cv2.VideoCapture(0)
 
-print("--------------------------------------------------")
-print("Image Describer Initialized!")
-print(" -> Press [SPACEBAR] to take a picture and describe it.")
-print(" -> Press [Q] to quit application.")
-print("--------------------------------------------------")
+    print("--------------------------------------------------")
+    print("Image Describer Initialized!")
+    print(" -> Press [SPACEBAR] to take a picture and describe it.")
+    print(" -> Press [Q] to quit application.")
+    print("--------------------------------------------------")
 
-with ObjectDetector.create_from_options(options) as detector:
-    while cap.isOpened():
-        success, frame = cap.read()
-        if not success:
-            print("Ignoring empty camera frame.")
-            continue
-        
-        # Display clear runtime instructions over the moving video sequence
-        preview_frame = frame.copy()
-        cv2.putText(preview_frame, "Press SPACE to Describe | Q to Quit", (15, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
-        
-        cv2.imshow('Camera Live Preview', preview_frame)
-        
-        key = cv2.waitKey(1) & 0xFF
-        
-        # SPACEBAR pressed: Lock image snapshot, process it, and showcase findings
-        if key == ord(' '):
-            print("\nCapturing frame...")
+    with ObjectDetector.create_from_options(options) as detector:
+        while cap.isOpened():
+            success, frame = cap.read()
+            if not success:
+                print("Ignoring empty camera frame.")
+                continue
             
-            # Format transformation (BGR to RGB format conversion)
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            # Display clear runtime instructions over the moving video sequence
+            preview_frame = frame.copy()
+            cv2.putText(preview_frame, "Press SPACE to Describe | Q to Quit", (15, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
             
-            # Perform blocking execution analysis
-            detection_result = detector.detect(mp_image)
+            cv2.imshow('Camera Live Preview', preview_frame)
             
-            # Generate static summary visual output layout overlay
-            described_snapshot = describe_and_draw(frame, detection_result)
+            key = cv2.waitKey(1) & 0xFF
             
-            # Display target frame evaluation output screen window 
-            cv2.imshow('Captured Scene Description', described_snapshot)
-            print("Snapshot analyzed. Press any key on the image window to resume live preview.")
-            
-            # Pause view indefinitely until user presses an interactive key to close the popup
-            cv2.waitKey(0)
-            cv2.destroyWindow('Captured Scene Description')
-            
-        # Q pressed: Terminate live frame processing loop execution
-        elif key == ord('q'):
-            break
+            # SPACEBAR pressed: Lock image snapshot, process it, and showcase findings
+            if key == ord(' '):
+                print("\nCapturing frame...")
+                
+                # Format transformation (BGR to RGB format conversion)
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+                
+                # Perform blocking execution analysis
+                detection_result = detector.detect(mp_image)
+                
+                # Generate static summary visual output layout overlay
+                described_snapshot = describe_and_draw(frame, detection_result)
+                
+                # Display target frame evaluation output screen window 
+                cv2.imshow('Captured Scene Description', described_snapshot)
+                print("Snapshot analyzed. Press any key on the image window to resume live preview.")
+                
+                # Pause view indefinitely until user presses an interactive key to close the popup
+                cv2.waitKey(0)
+                cv2.destroyWindow('Captured Scene Description')
+                
+            # Q pressed: Terminate live frame processing loop execution
+            elif key == ord('q'):
+                break
 
-        else:
-            # Continue live feed without processing
-            continue
+            else:
+                # Continue live feed without processing
+                continue
 
-cap.release()
-cv2.destroyAllWindows()
+    cap.release()
+    cv2.destroyAllWindows()

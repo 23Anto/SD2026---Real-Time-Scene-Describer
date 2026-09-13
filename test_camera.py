@@ -13,16 +13,15 @@ import threading
 
 from video_source import DEFAULT_ESP_URL
 
+# --- Global Control Flags ---
+cancel_current_task = threading.Event()
+active_thread = None
+
 # --- CONFIGURATION ---
-<<<<<<< HEAD:test_ocr.py
-ESP32_STREAM_URL = "http://192.168.4.1/stream"  
-=======
 # Override with the VIDEO_SOURCE env var when the ESP32 gets a new IP, e.g.
 #   VIDEO_SOURCE="http://192.168.1.223/stream" python test_camera.py
 ESP32_STREAM_URL = os.environ.get("VIDEO_SOURCE", DEFAULT_ESP_URL)
->>>>>>> b4d5fe1bac5c4afa59207aa56d0854082af027bf:test_camera.py
 
-print("Initializing EasyOCR and TTS Engine (Please wait)...")
 engine = pyttsx3.init()
 last_spoken_text = ""
 
@@ -39,77 +38,94 @@ def speak_async(text):
         except Exception:
             pass
 
-print(f"Connecting to ESP32 stream via Web Requests: {ESP32_STREAM_URL}")
+def ocr_process(cancel_flag):
 
-try:
-    stream = requests.get(ESP32_STREAM_URL, stream=True, timeout=5)
-    if stream.status_code != 200:
-        print(f"[Error] Server responded with status code: {stream.status_code}")
-        exit()
-except Exception as e:
-    print(f"\n[Fatal Error] Could not connect to {ESP32_STREAM_URL}\nDetails: {e}")
-    exit()
+    frame_count = 0
+    bytes_buffer = bytearray() # Initialized as mutable bytearray for extend/del performance
 
-print("\n[Success] Connected to ESP32 Network Stream!")
-print("Live Scene Describer Active! Press 'q' on the image window to quit.")
+    try:
+        stream = requests.get(ESP32_STREAM_URL, stream=True, timeout=5)
+        if stream.status_code != 200:
+            print(f"[Error] Server responded with status code: {stream.status_code}")
+            exit()
 
-bytes_buffer = bytearray()
-frame_count = 0
+        while not cancel_flag.is_set():
 
-for chunk in stream.iter_content(chunk_size=1024):
-    bytes_buffer.extend(chunk)
-    
-    start_idx = bytes_buffer.find(b'\xff\xd8')
-    end_idx = bytes_buffer.find(b'\xff\xd9')
-    
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        jpg_data = bytes_buffer[start_idx:end_idx + 2]
-        del bytes_buffer[:end_idx + 2] 
-        
-        frame = cv2.imdecode(np.frombuffer(jpg_data, dtype=np.uint8), cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            continue
-            
-        frame_count += 1
-
-        # --- FRAME THROTTLING ---
-        if frame_count % 15 == 0:
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = reader.readtext(rgb_frame)
-
-            print("\033[H\033[J", end="") 
-            print("=== Real-time Scene Content ===")
-            
-            detected_words = []
-
-            for (bbox, text, prob) in results:
-                if prob > 0.4:  
-                    print(f" Detected: {text} ({int(prob*100)}% confidence)")
-                    detected_words.append(text)
-
-                    # FIXED: Extract explicit integer tuple coordinates from EasyOCR box layout
-                    top_left = tuple(map(int, bbox[0]))
-                    bottom_right = tuple(map(int, bbox[2]))
+            for chunk in stream.iter_content(chunk_size=1024):
+                if cancel_flag.is_set():
+                    break # Breaks out of the chunk loop
                     
-                    cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
+                bytes_buffer.extend(chunk)
+                
+                start_idx = bytes_buffer.find(b'\xff\xd8')
+                end_idx = bytes_buffer.find(b'\xff\xd9')
+                
+                # READER
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    jpg_data = bytes_buffer[start_idx:end_idx + 2]
+                    del bytes_buffer[:end_idx + 2] 
                     
-                    # FIXED: Corrected text offset rendering vector placement
-                    text_y = top_left[1] - 10 if top_left[1] - 10 > 10 else top_left[1] + 20
-                    cv2.putText(frame, text, (top_left[0], text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    frame = cv2.imdecode(np.frombuffer(jpg_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                    
+                    if frame is None:
+                        continue
+                        
+                    frame_count += 1
 
-            if detected_words:
-                full_sentence = " ".join(detected_words)
-                if threading.active_count() <= 2: 
-                    tts_thread = threading.Thread(target=speak_async, args=(full_sentence,))
-                    tts_thread.daemon = True
-                    tts_thread.start()
+                    # --- FRAME THROTTLING ---
+                    if frame_count % 15 == 0:
+                        # Double-check before running heavy AI inference
+                        if cancel_flag.is_set():
+                            break
+                            
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        results = reader.readtext(rgb_frame)
 
-        # Display the live feed window
-        cv2.imshow('Scene Describer (Wi-Fi Stream)', frame)
+                        print("\033[H\033[J", end="") 
+                        print("=== Real-time Scene Content ===")
+                        
+                        detected_words = []
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+                        for (bbox, text, prob) in results:
+                            if prob > 0.4:  
+                                print(f" Detected: {text} ({int(prob*100)}% confidence)")
+                                detected_words.append(text)
+                                
+                                top_left = tuple(map(int, bbox[0]))
+                                bottom_right = tuple(map(int, bbox[2]))
+                                
+                                cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
+                                
+                                text_y = top_left[1] - 10 if top_left[1] - 10 > 10 else top_left[1] + 20
+                                cv2.putText(frame, text, (top_left[0], text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-cv2.destroyAllWindows()
-print("Disconnected.")
+                        if detected_words:
+                            full_sentence = " ".join(detected_words)
+                            if threading.active_count() <= 2: 
+                                tts_thread = threading.Thread(target=speak_async, args=(full_sentence,))
+                                tts_thread.daemon = True
+                                tts_thread.start()
+
+                    # Move cv2.imshow out of the if frame_count condition so the window stays active
+                    cv2.imshow('Scene Describer (Wi-Fi Stream)', frame)
+
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    cancel_flag.set() # Set flag locally if user presses 'q'
+                    break
+    
+    except Exception as e:  
+        print(f"[OCR Error]: {e}")
+        
+    finally:
+        # 2. CRITICAL CLEANUP: Force close the connection so the ESP32 can accept a new request later
+        try:
+            stream.close()
+            print("[OCR] Network stream closed.")
+        except NameError:
+            pass # Stream was never successfully opened
+            
+        cv2.destroyWindow('Scene Describer (Wi-Fi Stream)')
+        print("[OCR] Thread fully cleaned up and ready for next command.")
+
+        cv2.destroyAllWindows()
+        print("Disconnected.")

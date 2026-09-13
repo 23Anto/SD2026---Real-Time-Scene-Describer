@@ -76,7 +76,7 @@ def open_video_source(default=DEFAULT_ESP_URL):
     source = os.environ.get("VIDEO_SOURCE", default)
 
     if source is None:
-        return cv2.VideoCapture(0) #Testing
+        return cv2.VideoCapture(1) #Testing
 
     if isinstance(source, str) and source.startswith(("http://", "https://")):
         print(f"Opening ESP32-CAM MJPEG stream: {source}")

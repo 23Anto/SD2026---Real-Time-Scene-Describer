@@ -1,9 +1,12 @@
 import socket
 import json
 import time
+import threading
 import numpy as np
 import sounddevice as sd
 from vosk import Model, KaldiRecognizer
+
+from test_camera import ocr_process
 
 # --- Configuration ---
 # NOTE: this must be a *local* address to bind to, not the ESP32's address/URL.
@@ -25,6 +28,9 @@ SOCKET_TIMEOUT = 1.0     # seconds
 # RMS level below which we consider a packet "silent" (tune to your mic/gain)
 SILENCE_RMS_THRESHOLD = 50
 
+grammar = '["read", "two", "stop", "[unk]"]'
+
+
 # Initialize UDP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
@@ -39,13 +45,31 @@ def rms_level(data: bytes) -> float:
         return 0.0
     return float(np.sqrt(np.mean(samples ** 2)))
 
+# A single shared stop flag for whatever task is currently active
+cancel_current_task = threading.Event()
+active_thread = None
+
+def dispatch_new_task(task_function):
+    global active_thread
+    
+    # 1. If something is already running, kill it first
+    if active_thread and active_thread.is_alive():
+        print("Switching commands! Signaling previous task to stop...")
+        cancel_current_task.set() 
+        active_thread.join()      # Wait for the old thread to fully clean up and exit
+    
+    # 2. Reset the flag and start the new task
+    cancel_current_task.clear()
+    active_thread = threading.Thread(target=task_function, args=(cancel_current_task,))
+    active_thread.start()
+
 
 def main():
     # 1. Load the Vosk Model
     try:
         print("Loading Vosk model... (This may take a few seconds)")
         model = Model("model")
-        recognizer = KaldiRecognizer(model, SAMPLE_RATE)
+        recognizer = KaldiRecognizer(model, SAMPLE_RATE, grammar)
     except Exception as e:
         print(f"Error loading model: {e}")
         print("Please ensure your model folder is unzipped and named 'model' in this directory.")
@@ -70,6 +94,10 @@ def main():
         output_stream.start()
 
         while True:
+
+            stop_ocr_event = threading.Event()
+            ocr_thread = []
+
             # 3. Receive raw bytes from ESP32 over UDP (with timeout, so we can
             #    detect "no data" instead of blocking forever)
             try:
@@ -99,8 +127,15 @@ def main():
                 if recognizer.AcceptWaveform(data):
                     result_json = json.loads(recognizer.Result())
                     text = result_json.get("text", "")
-                    if text:
-                        print(f"\nFinal Text: {text}")
+                    
+                    print(f"\nFinal Text: {text}")
+
+                    if text == "read":
+                        dispatch_new_task(ocr_process)
+
+                    if text == "stop":
+                        cancel_current_task.set()
+
                 else:
                     partial_json = json.loads(recognizer.PartialResult())
                     partial_text = partial_json.get("partial", "")
@@ -120,11 +155,6 @@ def main():
                           f"ESP32 may have stopped streaming.")
                     warned_no_data = True
 
-            # Periodic summary every ~10 seconds
-            if now - last_stats_time > 10:
-                print(f"\n[STATS] {packet_count} packets received in the last check window.")
-                last_stats_time = now
-
     except KeyboardInterrupt:
         print("\nStopping audio detection...")
     except Exception as e:
@@ -133,7 +163,6 @@ def main():
         output_stream.stop()
         output_stream.close()
         sock.close()
-
 
 if __name__ == "__main__":
     main()
