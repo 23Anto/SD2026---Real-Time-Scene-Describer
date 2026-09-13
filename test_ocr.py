@@ -25,7 +25,7 @@ ESP32_STREAM_URL = os.environ.get("VIDEO_SOURCE", DEFAULT_ESP_URL)
 engine = pyttsx3.init()
 last_spoken_text = ""
 
-# Set gpu=False since CUDA is not available on this laptop environment, connect to external GPU?
+# Set gpu=False since CUDA is not available on this laptop environment, connect to external GPU? Maybe..
 reader = easyocr.Reader(['en'], gpu=False) 
 
 def speak_async(text):
