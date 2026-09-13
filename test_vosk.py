@@ -6,7 +6,8 @@ import numpy as np
 import sounddevice as sd
 from vosk import Model, KaldiRecognizer
 
-from test_camera import ocr_process
+from test_ocr import ocr_process
+from live_preview_yolo import yolo_process
 
 # --- Configuration ---
 # NOTE: this must be a *local* address to bind to, not the ESP32's address/URL.
@@ -28,7 +29,7 @@ SOCKET_TIMEOUT = 1.0     # seconds
 # RMS level below which we consider a packet "silent" (tune to your mic/gain)
 SILENCE_RMS_THRESHOLD = 50
 
-grammar = '["read", "two", "stop", "[unk]"]'
+grammar = '["read", "see", "stop", "[unk]"]'
 
 
 # Initialize UDP Socket
@@ -132,6 +133,9 @@ def main():
 
                     if text == "read":
                         dispatch_new_task(ocr_process)
+                    
+                    if text == "see":
+                        dispatch_new_task(yolo_process)
 
                     if text == "stop":
                         cancel_current_task.set()
